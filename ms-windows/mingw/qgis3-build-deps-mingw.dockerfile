@@ -9,36 +9,27 @@ echo all > /etc/rpm/macros.image-language-conf && \
 rm -f /etc/yum.repos.d/*modular* && \
 dnf install -y --nogpgcheck \
   mingw64-dlfcn \
-  mingw64-exiv2 \
   ccache \
   mingw64-gcc-c++ \
   mingw64-gdal \
-  mingw64-gdb \
-  mingw64-GdbCrashHandler \
-  mingw64-GeographicLib \
+  mingw64-gdb\
   mingw64-geos \
   mingw64-gsl \
   mingw64-libgomp \
   mingw64-libzip \
-  mingw64-osgearth-qt5 \
-  mingw64-pacparser \
   mingw64-postgresql \
   mingw64-proj \
   mingw64-python3 \
   mingw64-python3-affine \
   mingw64-python3-chardet \
   mingw64-python3-dateutil \
-  mingw64-python3-flask \
   mingw64-python3-gdal \
-  mingw64-python3-GeographicLib \
-  mingw64-python3-homography \
   mingw64-python3-idna \
   mingw64-python3-lxml \
   mingw64-python3-markupsafe \
   mingw64-python3-numpy \
   mingw64-python3-opencv \
   mingw64-python3-OWSLib \
-  mingw64-python3-pillow \
   mingw64-python3-psycopg2 \
   mingw64-python3-pygments \
   mingw64-python3-pytz \
