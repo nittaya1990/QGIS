@@ -10,6 +10,8 @@ on:
 
 jobs:
   documentation_checks:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -50,6 +52,8 @@ jobs:
         run: cd build && ctest -V -R PyQgsDocCoverage
 
   license_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -64,6 +68,8 @@ jobs:
         run: ./tests/code_layout/test_licenses.sh
 
   shell_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -77,6 +83,8 @@ jobs:
         run: ./tests/code_layout/test_shellcheck.sh
 
   banned_keywords_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -85,6 +93,8 @@ jobs:
         run: ./tests/code_layout/test_banned_keywords.sh
 
   def_window_title_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -93,6 +103,8 @@ jobs:
         run: ./tests/code_layout/test_defwindowtitle.sh
 
   qvariant_no_brace_init:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -101,6 +113,8 @@ jobs:
         run: ./tests/code_layout/test_qvariant_no_brace_init.sh
 
   qt_module_wide_imports:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -109,6 +123,8 @@ jobs:
         run: ./tests/code_layout/test_qt_imports.sh
 
   doxygen_layout_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -122,6 +138,8 @@ jobs:
         run: ./tests/code_layout/test_doxygen_layout.sh
 
   indentation_check:
+    permissions:
+      contents: read
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
@@ -139,6 +157,9 @@ jobs:
         run: ./scripts/verify_indentation.sh HEAD~1
 
   spell_check:
+    permissions:
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -157,6 +178,8 @@ jobs:
         run: ./scripts/spell_check/check_spelling.sh -r ${{ steps.changed_files.outputs.files_modified }} ${{ steps.changed_files.outputs.files_added }}
 
   sip_check:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Set up Python 3.7
@@ -193,6 +216,8 @@ jobs:
         run: ./tests/code_layout/test_sipfiles.sh
 
   cppcheck_18_04:
+    permissions:
+      contents: read
     runs-on: ubuntu-18.04
     steps:
       - name: Checkout
