@@ -16,15 +16,18 @@
  ***************************************************************************/
 
 #include "qgspointcloudextentrenderer.h"
-#include "qgspointcloudblock.h"
-#include "qgssymbollayerutils.h"
-#include "qgssymbol.h"
-#include "qgswkbtypes.h"
-#include "qgspolygon.h"
 #include "qgscurve.h"
-#include "qgslinesymbollayer.h"
-#include "qgslayertreemodellegendnode.h"
 #include "qgsfillsymbol.h"
+#include "qgslayertreemodellegendnode.h"
+#include "qgslinesymbollayer.h"
+#include "qgspointcloudblock.h"
+#include "qgspolygon.h"
+#include "qgsstyle.h"
+#include "qgssymbol.h"
+#include "qgssymbollayerutils.h"
+#include "qgstextdocument.h"
+#include "qgstextdocumentmetrics.h"
+#include "qgstextrenderer.h"
 
 QgsPointCloudExtentRenderer::QgsPointCloudExtentRenderer( QgsFillSymbol *symbol )
   : mFillSymbol( symbol ? symbol : defaultFillSymbol() )
@@ -122,7 +125,7 @@ QgsFillSymbol *QgsPointCloudExtentRenderer::defaultFillSymbol()
   layer->setColor( QColor( 228, 26, 28 ) );
   layer->setWidth( 0.960000 );
   layer->setPenStyle( Qt::DotLine );
-  layer->setWidthUnit( QgsUnitTypes::RenderMillimeters );
+  layer->setWidthUnit( Qgis::RenderUnit::Millimeters );
   return new QgsFillSymbol( QgsSymbolLayerList() << layer.release() );
 }
 
@@ -134,6 +137,16 @@ QgsFillSymbol *QgsPointCloudExtentRenderer::fillSymbol() const
 void QgsPointCloudExtentRenderer::setFillSymbol( QgsFillSymbol *symbol )
 {
   mFillSymbol.reset( symbol );
+}
+void QgsPointCloudExtentRenderer::renderLabel( const QRectF &extent, const QString &text, QgsPointCloudRenderContext &context ) const
+{
+  const QgsTextDocument doc = QgsTextDocument::fromTextAndFormat( {text}, labelTextFormat() );
+  const QgsTextDocumentMetrics metrics = QgsTextDocumentMetrics::calculateMetrics( doc, labelTextFormat(), context.renderContext() );
+  const QSizeF textSize = metrics.documentSize( Qgis::TextLayoutMode::Rectangle, labelTextFormat().orientation() );
+  if ( textSize.width() < extent.width() && textSize.height() < extent.height() )
+  {
+    QgsTextRenderer::drawDocument( extent, labelTextFormat(), metrics.document(), metrics, context.renderContext(), Qgis::TextHorizontalAlignment::Center, Qgis::TextVerticalAlignment::VerticalCenter );
+  }
 }
 
 QDomElement QgsPointCloudExtentRenderer::save( QDomDocument &doc, const QgsReadWriteContext &context ) const

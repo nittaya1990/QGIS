@@ -14,20 +14,14 @@
  ***************************************************************************/
 
 #include "qgsmaptooladdfeature.h"
+#include "moc_qgsmaptooladdfeature.cpp"
 #include "qgsadvanceddigitizingdockwidget.h"
-#include "qgsapplication.h"
-#include "qgsattributedialog.h"
 #include "qgsexception.h"
-#include "qgscurvepolygon.h"
-#include "qgsfields.h"
 #include "qgsgeometry.h"
-#include "qgslinestring.h"
-#include "qgsmultipoint.h"
 #include "qgsmapcanvas.h"
-#include "qgsmapmouseevent.h"
-#include "qgspolygon.h"
 #include "qgsproject.h"
-#include "qgsvectordataprovider.h"
+#include "qgssettingsentryimpl.h"
+#include "qgssettingsregistrycore.h"
 #include "qgsvectorlayer.h"
 #include "qgslogger.h"
 #include "qgsfeatureaction.h"
@@ -37,9 +31,8 @@
 
 #include <QSettings>
 
-QgsMapToolAddFeature::QgsMapToolAddFeature( QgsMapCanvas *canvas, CaptureMode mode )
-  : QgsMapToolDigitizeFeature( canvas, QgisApp::instance()->cadDockWidget(), mode )
-  , mCheckGeometryType( true )
+QgsMapToolAddFeature::QgsMapToolAddFeature( QgsMapCanvas *canvas, QgsAdvancedDigitizingDockWidget *cadDockWidget, CaptureMode mode )
+  : QgsMapToolDigitizeFeature( canvas, cadDockWidget, mode )
 {
   setLayer( canvas->currentLayer() );
 
@@ -48,33 +41,90 @@ QgsMapToolAddFeature::QgsMapToolAddFeature( QgsMapCanvas *canvas, CaptureMode mo
   connect( QgisApp::instance(), &QgisApp::projectRead, this, &QgsMapToolAddFeature::stopCapturing );
 }
 
+QgsMapToolAddFeature::QgsMapToolAddFeature( QgsMapCanvas *canvas, CaptureMode mode )
+  : QgsMapToolAddFeature( canvas, QgisApp::instance()->cadDockWidget(), mode )
+{
+}
+
+std::unique_ptr<QgsHighlight> QgsMapToolAddFeature::createHighlight( QgsVectorLayer *layer, const QgsFeature &f )
+{
+  std::unique_ptr<QgsHighlight> highlight = std::make_unique<QgsHighlight>( mCanvas, f.geometry(), layer );
+  highlight->applyDefaultStyle();
+
+  switch ( f.geometry().type() )
+  {
+    case Qgis::GeometryType::Point:
+    {
+      highlight->mPointSizeRadiusMM = 1.0;
+      highlight->mPointSymbol = QgsHighlight::PointSymbol::Circle;
+
+      break;
+    }
+
+    case Qgis::GeometryType::Polygon:
+    case Qgis::GeometryType::Line:
+    {
+      const double rubberbandWidth = QgsSettingsRegistryCore::settingsDigitizingLineWidth->value();
+
+      highlight->setWidth( static_cast<int>( rubberbandWidth ) + 1 );
+
+      break;
+    }
+    default:
+      break;
+  }
+  return highlight;
+};
+
 bool QgsMapToolAddFeature::addFeature( QgsVectorLayer *vlayer, const QgsFeature &f, bool showModal )
 {
   QgsFeature feat( f );
-  QgsExpressionContextScope *scope = QgsExpressionContextUtils::mapToolCaptureScope( snappingMatches() );
-  QgsFeatureAction *action = new QgsFeatureAction( tr( "add feature" ), feat, vlayer, QString(), -1, this );
+  std::unique_ptr<QgsExpressionContextScope> scope( QgsExpressionContextUtils::mapToolCaptureScope( snappingMatches() ) );
+  QgsFeatureAction *action = new QgsFeatureAction( tr( "add feature" ), feat, vlayer, QUuid(), -1, this );
+
+  std::unique_ptr<QgsHighlight> highlight;
   if ( QgsRubberBand *rb = takeRubberBand() )
+  {
     connect( action, &QgsFeatureAction::addFeatureFinished, rb, &QgsRubberBand::deleteLater );
-  const bool res = action->addFeature( QgsAttributeMap(), showModal, scope );
+  }
+
+  // create a highlight for all spatial layers to enable distinguishing features in case
+  // the user digitizes multiple features and has many pending attribute dialogs. This also
+  // ensures that tools which don't create a rubber band (ie those which digitize single points)
+  // still have a visible way of representing the captured geometry
+
+  if ( vlayer->isSpatial() )
+    highlight = createHighlight( vlayer, f );
+
+  const QgsFeatureAction::AddFeatureResult res = action->addFeature( QgsAttributeMap(), showModal, std::move( scope ), false, std::move( highlight ) );
   if ( showModal )
     delete action;
-  return res;
+
+  switch ( res )
+  {
+    case QgsFeatureAction::AddFeatureResult::Success:
+    case QgsFeatureAction::AddFeatureResult::Pending:
+      return true;
+    case QgsFeatureAction::AddFeatureResult::LayerStateError:
+    case QgsFeatureAction::AddFeatureResult::Canceled:
+    case QgsFeatureAction::AddFeatureResult::FeatureError:
+      return false;
+  }
+  BUILTIN_UNREACHABLE
 }
 
-void QgsMapToolAddFeature::digitized( const QgsFeature &f )
+void QgsMapToolAddFeature::featureDigitized( const QgsFeature &feature )
 {
   QgsVectorLayer *vlayer = currentVectorLayer();
-  const bool res = addFeature( vlayer, f, false );
+  const bool res = addFeature( vlayer, feature, false );
 
   if ( res )
   {
     //add points to other features to keep topology up-to-date
     const bool topologicalEditing = QgsProject::instance()->topologicalEditing();
-    const QgsProject::AvoidIntersectionsMode avoidIntersectionsMode = QgsProject::instance()->avoidIntersectionsMode();
-    if ( topologicalEditing && avoidIntersectionsMode == QgsProject::AvoidIntersectionsMode::AvoidIntersectionsLayers &&
-         ( mode() == CaptureLine || mode() == CapturePolygon ) )
+    const Qgis::AvoidIntersectionsMode avoidIntersectionsMode = QgsProject::instance()->avoidIntersectionsMode();
+    if ( topologicalEditing && avoidIntersectionsMode == Qgis::AvoidIntersectionsMode::AvoidIntersectionsLayers && ( mode() == CaptureLine || mode() == CapturePolygon ) )
     {
-
       //use always topological editing for avoidIntersection.
       //Otherwise, no way to guarantee the geometries don't have a small gap in between.
       const QList<QgsVectorLayer *> intersectionLayers = QgsProject::instance()->avoidIntersectionsLayers();
@@ -84,24 +134,55 @@ void QgsMapToolAddFeature::digitized( const QgsFeature &f )
         for ( QgsVectorLayer *vl : intersectionLayers )
         {
           //can only add topological points if background layer is editable...
-          if ( vl->geometryType() == QgsWkbTypes::PolygonGeometry && vl->isEditable() )
+          if ( vl->geometryType() == Qgis::GeometryType::Polygon && vl->isEditable() )
           {
-            vl->addTopologicalPoints( f.geometry() );
+            vl->addTopologicalPoints( feature.geometry() );
           }
         }
       }
     }
     if ( topologicalEditing )
     {
-      const QList<QgsPointLocator::Match> sm = snappingMatches();
-      for ( int i = 0; i < sm.size() ; ++i )
+      const QList<QgsMapLayer *> layers = canvas()->layers( true );
+
+      for ( QgsMapLayer *layer : layers )
       {
-        if ( sm.at( i ).layer() )
+        QgsVectorLayer *vectorLayer = qobject_cast<QgsVectorLayer *>( layer );
+
+        if ( !vectorLayer || !vectorLayer->isEditable() )
+          continue;
+
+        if ( !( vectorLayer->geometryType() == Qgis::GeometryType::Polygon || vectorLayer->geometryType() == Qgis::GeometryType::Line ) )
+          continue;
+
+        vectorLayer->beginEditCommand( tr( "Topological points added by 'Add Feature'" ) );
+
+        int res = 2;
+        if ( vectorLayer->crs() != vlayer->crs() )
         {
-          sm.at( i ).layer()->addTopologicalPoints( f.geometry().vertexAt( i ) );
+          QgsGeometry transformedGeom = feature.geometry();
+          try
+          {
+            // transform digitized geometry from vlayer crs to vectorLayer crs and add topological points
+            transformedGeom.transform( QgsCoordinateTransform( vlayer->crs(), vectorLayer->crs(), vectorLayer->transformContext() ) );
+            res = vectorLayer->addTopologicalPoints( transformedGeom );
+          }
+          catch ( QgsCsException &cse )
+          {
+            Q_UNUSED( cse )
+            QgsDebugError( QStringLiteral( "transformation to vectorLayer coordinate failed" ) );
+          }
         }
+        else
+        {
+          res = vectorLayer->addTopologicalPoints( feature.geometry() );
+        }
+
+        if ( res == 0 ) // i.e. if any points were added
+          vectorLayer->endEditCommand();
+        else
+          vectorLayer->destroyEditCommand();
       }
-      vlayer->addTopologicalPoints( f.geometry() );
     }
   }
 }
