@@ -14,6 +14,7 @@
  ***************************************************************************/
 
 #include "qgslayoutmultiframe.h"
+#include "moc_qgslayoutmultiframe.cpp"
 #include "qgslayoutmultiframeundocommand.h"
 #include "qgslayoutframe.h"
 #include "qgslayout.h"
@@ -439,6 +440,12 @@ void QgsLayoutMultiFrame::removeFrame( int i, const bool removeEmptyPages )
     mLayout->undoStack()->blockCommands( false );
     mIsRecalculatingSize = false;
   }
+
+  if ( i >= mFrameItems.count() )
+  {
+    return;
+  }
+
   mFrameItems.removeAt( i );
 }
 

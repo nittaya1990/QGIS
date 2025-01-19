@@ -231,6 +231,9 @@ QgsMeshCalcUtils:: QgsMeshCalcUtils( QgsMeshLayer *layer,
     mDatasetGroupMap.insert( groupName, ds );
   }
 
+  // Here, we calculate for the whole time range, so groups needed for aggregate are the same
+  mDatasetGroupMapForAggregate = mDatasetGroupMap;
+
   // Now populate used times and check that all datasets do have some times
   // OR just one time (== one output)
   bool timesPopulated = false;
@@ -839,8 +842,9 @@ const QgsTriangularMesh *QgsMeshCalcUtils::triangularMesh() const
 const QgsMesh *QgsMeshCalcUtils::nativeMesh() const
 {
   updateMesh();
-  Q_ASSERT( mMeshLayer->nativeMesh() );
-  return mMeshLayer->nativeMesh();
+  const QgsMesh *res = mMeshLayer->nativeMesh();
+  Q_ASSERT( res );
+  return res;
 }
 
 void QgsMeshCalcUtils::updateMesh() const

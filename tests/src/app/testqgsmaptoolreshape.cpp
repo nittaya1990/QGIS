@@ -16,17 +16,15 @@
 #include "qgstest.h"
 
 #include "qgisapp.h"
-#include "qgsadvanceddigitizingdockwidget.h"
 #include "qgsgeometry.h"
 #include "qgsmapcanvas.h"
-#include "qgsmapcanvassnappingutils.h"
 #include "qgssnappingconfig.h"
 #include "qgssnappingutils.h"
 #include "qgsmaptoolreshape.h"
 #include "qgsproject.h"
 #include "qgssettingsregistrycore.h"
 #include "qgsvectorlayer.h"
-#include "qgsmapmouseevent.h"
+#include "qgsmapcanvastracer.h"
 #include "testqgsmaptoolutils.h"
 
 
@@ -34,19 +32,21 @@
  * \ingroup UnitTests
  * This is a unit test for the vertex tool
  */
-class TestQgsMapToolReshape: public QObject
+class TestQgsMapToolReshape : public QObject
 {
     Q_OBJECT
   public:
     TestQgsMapToolReshape();
 
   private slots:
-    void initTestCase();// will be called before the first testfunction is executed.
-    void cleanupTestCase();// will be called after the last testfunction was executed.
+    void initTestCase();    // will be called before the first testfunction is executed.
+    void cleanupTestCase(); // will be called after the last testfunction was executed.
 
     void testReshapeZ();
     void testTopologicalEditing();
+    void testAvoidIntersectionAndTopoEdit();
     void reshapeWithBindingLine();
+    void testWithTracing();
 
   private:
     QgisApp *mQgisApp = nullptr;
@@ -56,6 +56,7 @@ class TestQgsMapToolReshape: public QObject
     QgsVectorLayer *mLayerPointZ = nullptr;
     QgsVectorLayer *mLayerPolygonZ = nullptr;
     QgsVectorLayer *mLayerTopo = nullptr;
+    QgsVectorLayer *mLayerTopo2 = nullptr;
 };
 
 TestQgsMapToolReshape::TestQgsMapToolReshape() = default;
@@ -102,9 +103,12 @@ void TestQgsMapToolReshape::initTestCase()
   mLayerTopo = new QgsVectorLayer( QStringLiteral( "Polygon?crs=EPSG:3946" ), QStringLiteral( "topo" ), QStringLiteral( "memory" ) );
   QVERIFY( mLayerTopo->isValid() );
 
+  mLayerTopo2 = new QgsVectorLayer( QStringLiteral( "Polygon?crs=EPSG:3946" ), QStringLiteral( "topo2" ), QStringLiteral( "memory" ) );
+  QVERIFY( mLayerTopo2->isValid() );
+
   mLayerLineZ->startEditing();
-  const QString wkt1 = "LineStringZ (0 0 0, 1 1 0, 1 2 0)";
-  const QString wkt2 = "LineStringZ (2 1 5, 3 3 5)";
+  const QString wkt1 = "LineString Z (0 0 0, 1 1 0, 1 2 0)";
+  const QString wkt2 = "LineString Z (2 1 5, 3 3 5)";
   QgsFeature f1;
   f1.setGeometry( QgsGeometry::fromWkt( wkt1 ) );
   QgsFeature f2;
@@ -113,33 +117,33 @@ void TestQgsMapToolReshape::initTestCase()
   QgsFeatureList flist;
   flist << f1 << f2;
   mLayerLineZ->dataProvider()->addFeatures( flist );
-  QCOMPARE( mLayerLineZ->featureCount(), ( long )2 );
+  QCOMPARE( mLayerLineZ->featureCount(), ( long ) 2 );
   QCOMPARE( mLayerLineZ->getFeature( 1 ).geometry().asWkt(), wkt1 );
   QCOMPARE( mLayerLineZ->getFeature( 2 ).geometry().asWkt(), wkt2 );
 
   mLayerPointZ->startEditing();
-  const QString wkt3 = "PointZ (5 5 5)";
+  const QString wkt3 = "Point Z (5 5 5)";
   QgsFeature f3;
   f3.setGeometry( QgsGeometry::fromWkt( wkt3 ) );
-  const QString wkt4 = "PointZ (6 6 6)";
+  const QString wkt4 = "Point Z (6 6 6)";
   QgsFeature f4;
   f4.setGeometry( QgsGeometry::fromWkt( wkt4 ) );
 
   QgsFeatureList flistPoint;
   flistPoint << f3 << f4;
   mLayerPointZ->dataProvider()->addFeatures( flistPoint );
-  QCOMPARE( mLayerPointZ->featureCount(), ( long )2 );
+  QCOMPARE( mLayerPointZ->featureCount(), ( long ) 2 );
   QCOMPARE( mLayerPointZ->getFeature( 1 ).geometry().asWkt(), wkt3 );
   QCOMPARE( mLayerPointZ->getFeature( 2 ).geometry().asWkt(), wkt4 );
 
   mLayerPolygonZ->startEditing();
-  const QString wkt5 = "PolygonZ ((7 5 4, 3 2 1, 0 1 2, 7 5 4))";
+  const QString wkt5 = "Polygon Z ((7 5 4, 3 2 1, 0 1 2, 7 5 4))";
   QgsFeature f5;
   f5.setGeometry( QgsGeometry::fromWkt( wkt5 ) );
   QgsFeatureList flistPolygon;
   flistPolygon << f5;
   mLayerPolygonZ->dataProvider()->addFeatures( flistPolygon );
-  QCOMPARE( mLayerPolygonZ->featureCount(), ( long )1 );
+  QCOMPARE( mLayerPolygonZ->featureCount(), ( long ) 1 );
   QCOMPARE( mLayerPolygonZ->getFeature( 1 ).geometry().asWkt(), wkt5 );
 
   mLayerTopo->startEditing();
@@ -152,14 +156,21 @@ void TestQgsMapToolReshape::initTestCase()
   QgsFeatureList flistTopo;
   flistTopo << f6 << f7;
   mLayerTopo->dataProvider()->addFeatures( flistTopo );
-  QCOMPARE( mLayerTopo->featureCount(), ( long )2 );
+  QCOMPARE( mLayerTopo->featureCount(), ( long ) 2 );
   QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), wkt6 );
   QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), wkt7 );
 
+  mLayerTopo2->startEditing();
+  QgsFeature f8;
+  f8.setGeometry( QgsGeometry::fromWkt( QStringLiteral( "Polygon ((0 5, 4 5, 4 7, 0 7))" ) ) );
+  mLayerTopo2->dataProvider()->addFeatures( QgsFeatureList() << f8 );
+  QCOMPARE( mLayerTopo2->featureCount(), 1 );
+  QCOMPARE( mLayerTopo2->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 5, 4 5, 4 7, 0 7))" ) );
+
   QgsSnappingConfig cfg = mCanvas->snappingUtils()->config();
-  cfg.setMode( QgsSnappingConfig::AllLayers );
+  cfg.setMode( Qgis::SnappingMode::AllLayers );
   cfg.setTolerance( 100 );
-  cfg.setTypeFlag( static_cast<QgsSnappingConfig::SnappingTypeFlag>( QgsSnappingConfig::VertexFlag | QgsSnappingConfig::SegmentFlag ) );
+  cfg.setTypeFlag( static_cast<Qgis::SnappingTypes>( Qgis::SnappingType::Vertex | Qgis::SnappingType::Segment ) );
   cfg.setEnabled( true );
   mCanvas->snappingUtils()->setConfig( cfg );
   mCanvas->setLayers( QList<QgsMapLayer *>() << mLayerLineZ << mLayerPointZ << mLayerPolygonZ );
@@ -169,6 +180,7 @@ void TestQgsMapToolReshape::initTestCase()
   mCanvas->snappingUtils()->locatorForLayer( mLayerPointZ )->init();
   mCanvas->snappingUtils()->locatorForLayer( mLayerPolygonZ )->init();
   mCanvas->snappingUtils()->locatorForLayer( mLayerTopo )->init();
+  mCanvas->snappingUtils()->locatorForLayer( mLayerTopo2 )->init();
 
   // create the tool
   mCaptureTool = new QgsMapToolReshape( mCanvas );
@@ -191,14 +203,14 @@ void TestQgsMapToolReshape::testReshapeZ()
   TestQgsMapToolAdvancedDigitizingUtils utils( mCaptureTool );
 
   // test with default Z value = 333
-  QgsSettingsRegistryCore::settingsDigitizingDefaultZValue.setValue( 333 );
+  QgsSettingsRegistryCore::settingsDigitizingDefaultZValue->setValue( 333 );
 
   // snap on a linestringz layer
   utils.mouseClick( 1, 2, Qt::LeftButton, Qt::KeyboardModifiers(), true );
   utils.mouseClick( 2, 1, Qt::LeftButton, Qt::KeyboardModifiers(), true );
   utils.mouseClick( 2, 1, Qt::RightButton );
 
-  const QString wkt = "LineStringZ (0 0 0, 1 1 0, 1 2 0, 2 1 5)";
+  const QString wkt = "LineString Z (0 0 0, 1 1 0, 1 2 0, 2 1 5)";
   QCOMPARE( mLayerLineZ->getFeature( 1 ).geometry().asWkt(), wkt );
 
   // snap on a pointz layer
@@ -207,7 +219,7 @@ void TestQgsMapToolReshape::testReshapeZ()
   utils.mouseClick( 6, 6, Qt::LeftButton, Qt::KeyboardModifiers(), true );
   utils.mouseClick( 6, 6, Qt::RightButton );
 
-  const QString wkt2 = "LineStringZ (0 0 0, 1 1 0, 1 2 0, 2 1 5, 5 5 5, 6 6 6)";
+  const QString wkt2 = "LineString Z (0 0 0, 1 1 0, 1 2 0, 2 1 5, 5 5 5, 6 6 6)";
   QCOMPARE( mLayerLineZ->getFeature( 1 ).geometry().asWkt(), wkt2 );
 
   // snap on a polygonz layer
@@ -216,10 +228,9 @@ void TestQgsMapToolReshape::testReshapeZ()
   utils.mouseClick( 3, 2, Qt::LeftButton, Qt::KeyboardModifiers(), true );
   utils.mouseClick( 3, 2, Qt::RightButton );
 
-  const QString wkt3 = "LineStringZ (0 0 0, 1 1 0, 1 2 0, 2 1 5, 5 5 5, 6 6 6, 7 5 4, 3 2 1)";
+  const QString wkt3 = "LineString Z (0 0 0, 1 1 0, 1 2 0, 2 1 5, 5 5 5, 6 6 6, 7 5 4, 3 2 1)";
   QCOMPARE( mLayerLineZ->getFeature( 1 ).geometry().asWkt(), wkt3 );
   mLayerLineZ->undoStack()->undo();
-
 }
 
 void TestQgsMapToolReshape::testTopologicalEditing()
@@ -233,7 +244,7 @@ void TestQgsMapToolReshape::testTopologicalEditing()
   TestQgsMapToolAdvancedDigitizingUtils utils( mCaptureTool );
 
   // test with default Z value = 333
-  QgsSettingsRegistryCore::settingsDigitizingDefaultZValue.setValue( 333 );
+  QgsSettingsRegistryCore::settingsDigitizingDefaultZValue->setValue( 333 );
 
   utils.mouseClick( 4, 4, Qt::LeftButton, Qt::KeyboardModifiers(), true );
   utils.mouseClick( 7, 2, Qt::LeftButton, Qt::KeyboardModifiers(), true );
@@ -246,9 +257,55 @@ void TestQgsMapToolReshape::testTopologicalEditing()
   QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), wkt );
   QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), wkt2 );
 
-  QgsProject::instance()->setTopologicalEditing( topologicalEditing );
-
   mLayerTopo->undoStack()->undo();
+
+  QCOMPARE( mLayerTopo2->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 5, 4 5, 4 7, 0 7))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 0, 4 0, 4 4, 0 4))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), QStringLiteral( "Polygon ((7 0, 8 0, 8 4, 7 4))" ) );
+
+  QgsProject::instance()->setTopologicalEditing( topologicalEditing );
+}
+
+void TestQgsMapToolReshape::testAvoidIntersectionAndTopoEdit()
+{
+  QList<QgsMapLayer *> layers = { mLayerTopo, mLayerTopo2 };
+  QgsProject::instance()->addMapLayers( layers );
+  mCanvas->setLayers( layers );
+
+  // backup project settings
+  const bool topologicalEditing = QgsProject::instance()->topologicalEditing();
+  const Qgis::AvoidIntersectionsMode mode( QgsProject::instance()->avoidIntersectionsMode() );
+  const QList<QgsVectorLayer *> vlayers = QgsProject::instance()->avoidIntersectionsLayers();
+  const bool isAutoSnapEnabled = mCaptureTool->isAutoSnapEnabled();
+
+  QgsProject::instance()->setAvoidIntersectionsMode( Qgis::AvoidIntersectionsMode::AvoidIntersectionsLayers );
+  QgsProject::instance()->setAvoidIntersectionsLayers( { mLayerTopo, mLayerTopo2 } );
+  QgsProject::instance()->setTopologicalEditing( true );
+  mCanvas->setCurrentLayer( mLayerTopo2 );
+  mCaptureTool->setAutoSnapEnabled( false );
+  TestQgsMapToolAdvancedDigitizingUtils utils( mCaptureTool );
+
+  // reshape mLayerTopo2 feature 1 with a point inside mLayerTopo feature 1, there is 2 topo point added on this last
+  utils.mouseClick( 0, 5, Qt::LeftButton, Qt::KeyboardModifiers() );
+  utils.mouseClick( 2, 3, Qt::LeftButton, Qt::KeyboardModifiers() );
+  utils.mouseClick( 4, 5, Qt::LeftButton, Qt::KeyboardModifiers() );
+  utils.mouseClick( 4, 5, Qt::RightButton );
+
+  QCOMPARE( mLayerTopo2->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 5, 0 7, 4 7, 4 5, 3 4, 1 4, 0 5))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 0, 4 0, 4 4, 3 4, 1 4, 0 4))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), QStringLiteral( "Polygon ((7 0, 8 0, 8 4, 7 4))" ) );
+
+  mLayerTopo2->undoStack()->undo();
+  mLayerTopo->undoStack()->undo();
+
+  QCOMPARE( mLayerTopo2->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 5, 4 5, 4 7, 0 7))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 0, 4 0, 4 4, 0 4))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), QStringLiteral( "Polygon ((7 0, 8 0, 8 4, 7 4))" ) );
+
+  QgsProject::instance()->setTopologicalEditing( topologicalEditing );
+  QgsProject::instance()->setAvoidIntersectionsMode( mode );
+  QgsProject::instance()->setAvoidIntersectionsLayers( vlayers );
+  mCaptureTool->setAutoSnapEnabled( isAutoSnapEnabled );
 }
 
 void TestQgsMapToolReshape::reshapeWithBindingLine()
@@ -317,6 +374,38 @@ void TestQgsMapToolReshape::reshapeWithBindingLine()
   QCOMPARE( f1.geometry().asWkt(), QStringLiteral( "LineString (1 2, 2 1, 3 2, 3 3, 2 2)" ) );
 
   vl->rollBack();
+}
+
+void TestQgsMapToolReshape::testWithTracing()
+{
+  QgsProject::instance()->addMapLayers( QList<QgsMapLayer *>() << mLayerTopo );
+  mCanvas->setLayers( QList<QgsMapLayer *>() << mLayerTopo );
+
+  std::unique_ptr<QgsMapCanvasTracer> tracer( new QgsMapCanvasTracer( mCanvas, nullptr ) );
+
+  const bool topologicalEditing = QgsProject::instance()->topologicalEditing();
+  QgsProject::instance()->setTopologicalEditing( true );
+  mCanvas->setCurrentLayer( mLayerTopo );
+  TestQgsMapToolAdvancedDigitizingUtils utils( mCaptureTool );
+
+  // test with default Z value = 333
+  QgsSettingsRegistryCore::settingsDigitizingDefaultZValue->setValue( 333 );
+
+  utils.mouseClick( 7, 0, Qt::LeftButton, Qt::KeyboardModifiers(), true );
+  utils.mouseClick( 4, 0, Qt::LeftButton, Qt::KeyboardModifiers(), true );
+  utils.mouseClick( 4, 4, Qt::LeftButton, Qt::KeyboardModifiers(), true );
+  utils.mouseClick( 7, 4, Qt::LeftButton, Qt::KeyboardModifiers(), true );
+  utils.mouseClick( 8, 5, Qt::RightButton );
+
+  QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), "Polygon ((0 0, 4 0, 4 4, 0 4))" );
+  QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), "Polygon ((7 0, 8 0, 8 4, 7 4, 4 4, 4 0, 7 0))" );
+
+  mLayerTopo->undoStack()->undo();
+
+  QCOMPARE( mLayerTopo->getFeature( 1 ).geometry().asWkt(), QStringLiteral( "Polygon ((0 0, 4 0, 4 4, 0 4))" ) );
+  QCOMPARE( mLayerTopo->getFeature( 2 ).geometry().asWkt(), QStringLiteral( "Polygon ((7 0, 8 0, 8 4, 7 4))" ) );
+
+  QgsProject::instance()->setTopologicalEditing( topologicalEditing );
 }
 
 

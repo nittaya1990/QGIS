@@ -65,13 +65,8 @@ namespace QgsWfs
       * \param type Type of the parameter
       * \param defaultValue Default value of the parameter
        */
-      QgsWfsParameter( const QgsWfsParameter::Name name = QgsWfsParameter::UNKNOWN,
-                       const QVariant::Type type = QVariant::String,
-                       const QVariant defaultValue = QVariant( "" ) );
+      QgsWfsParameter( const QgsWfsParameter::Name name = QgsWfsParameter::UNKNOWN, const QMetaType::Type type = QMetaType::Type::QString, const QVariant defaultValue = QVariant( "" ) );
 
-      /**
-       * Default destructor for QgsWfsParameter.
-       */
       virtual ~QgsWfsParameter() = default;
 
       /**
@@ -120,22 +115,19 @@ namespace QgsWfs
    * \ingroup server
    * \class QgsWfs::QgsWfsParameters
    * \brief Provides an interface to retrieve and manipulate WFS parameters received from the client.
-   * \since QGIS 3.0
    */
   class QgsWfsParameters : public QgsServerParameters
   {
       Q_GADGET
 
     public:
-
       //! Output format for the response
       enum Format
       {
         NONE,
         GML2,
         GML3,
-        GeoJSON,
-        XSD
+        GeoJSON
       };
 
       //! Type of results
@@ -156,9 +148,6 @@ namespace QgsWfs
        */
       QgsWfsParameters();
 
-      /**
-       * Default destructor for QgsWfsParameters.
-       */
       virtual ~QgsWfsParameters() = default;
 
       /**
@@ -299,6 +288,6 @@ namespace QgsWfs
       QList<QgsProjectVersion> mVersions;
       QMap<QgsWfsParameter::Name, QgsWfsParameter> mWfsParameters;
   };
-}
+} // namespace QgsWfs
 
 #endif

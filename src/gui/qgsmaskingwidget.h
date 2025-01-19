@@ -37,7 +37,7 @@ class QgsMessageBarItem;
  * \note This class is not a part of public API
  * \since QGIS 3.14
  */
-class GUI_EXPORT QgsMaskingWidget: public QgsPanelWidget, private Ui::QgsMaskingWidgetBase
+class GUI_EXPORT QgsMaskingWidget : public QgsPanelWidget, private Ui::QgsMaskingWidgetBase
 {
     Q_OBJECT
   public:
@@ -49,17 +49,6 @@ class GUI_EXPORT QgsMaskingWidget: public QgsPanelWidget, private Ui::QgsMasking
 
     //! Applies the changes
     void apply();
-
-    //! Widget has been populated or not
-    bool hasBeenPopulated();
-
-  signals:
-    //! Emitted when a change is performed
-    void widgetChanged();
-
-  protected:
-
-    void showEvent( QShowEvent * ) override;
 
   private slots:
 
@@ -74,7 +63,8 @@ class GUI_EXPORT QgsMaskingWidget: public QgsPanelWidget, private Ui::QgsMasking
     void populate();
 
     QPointer<QgsMessageBarItem> mMessageBarItem;
-    bool mMustPopulate = false;
+
+    friend class TestQgsMaskingWidget;
 };
 
 
@@ -88,7 +78,7 @@ class GUI_EXPORT QgsMaskingWidget: public QgsPanelWidget, private Ui::QgsMasking
 class SymbolLayerVisitor : public QgsStyleEntityVisitorInterface
 {
   public:
-    typedef std::function<void( const QgsSymbolLayer *, const QgsSymbolLayerId & )> SymbolLayerCallback;
+    typedef std::function<void( const QgsSymbolLayer *, const QString & )> SymbolLayerCallback;
 
     //! constructor
     SymbolLayerVisitor( SymbolLayerCallback callback );
